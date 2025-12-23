@@ -1,0 +1,25 @@
+[project]
+name = "aiko_chat"
+version = "0.0"
+readme = "ReadMe.md"
+description = "Chat system built on top of Aiko Services"
+requires-python = ">=3.9,<=3.14.2"
+
+authors = [
+  {name = "Andy Gelme", email = "geekscape@gmail.com"}
+]
+
+keywords = ["agents", "distributed"]
+
+license-files = ["LICENCE"]
+
+dependencies = [
+# "aiko_services>=0.6"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aiko_chat"]
