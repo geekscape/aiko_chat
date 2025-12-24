@@ -6,7 +6,7 @@
 # ./chat.py exit
 #
 # ./chat.py repl username
-# ./chat.py send target[,target ...]  message
+# ./chat.py send receiver[,receiver ...]  message
 #
 # HOST_NAME="${HOSTNAME%%.*}"
 # PID="$(pgrep -f './chat.py' | head -n1)"
@@ -16,7 +16,7 @@
 #
 # Notes
 # ~~~~~
-# targets: [names]: channels or @username: @all, @here
+# receivers: channel(s) or @username(s): @all, @here
 #
 # To Do
 # ~~~~~
@@ -47,7 +47,7 @@ class Chat(aiko.Actor):
         pass
 
     @abstractmethod
-    def send_message(self, targets, payload):
+    def send_message(self, receivers, message):
         pass
 
 class ChatImpl(aiko.Actor):
@@ -58,13 +58,20 @@ class ChatImpl(aiko.Actor):
     def exit(self):
         aiko.process.terminate()
 
-    def send_message(self, targets, payload):
-        self.logger.info(f"send_message({targets} {payload})")
+    def send_message(self, receivers, message):
+        self.logger.info(f"send_message({receivers} {message})")
 
 # --------------------------------------------------------------------------- #
 
 def get_service_filter():
     return aiko.ServiceFilter("*", _ACTOR_TYPE, _PROTOCOL, "*", "*", "*")
+
+def parse_receivers(receivers):
+    if not receivers:
+        return []
+    return list(filter(None, map(str.strip, receivers.split(","))))
+
+# --------------------------------------------------------------------------- #
 
 @click.group()
 
@@ -88,6 +95,25 @@ def run_command():
     tags = ["ec=true"]       # TODO: Add ECProducer tag before add to Registrar
     init_args = aiko.actor_args(_ACTOR_TYPE, protocol=_PROTOCOL, tags=tags)
     chat = aiko.compose_instance(ChatImpl, init_args)
+    aiko.process.run()
+
+@main.command(name="send")
+@click.argument("receivers", type=str, required=True, default=None)
+@click.argument("message", type=str, required=True, default=None)
+
+def send_command(receivers, message):
+    """Send message to receivers (channels and/or users)
+
+    ./chat.py send RECEIVERS MESSAGE
+
+    \b
+    • RECEIVERS: List of one or more (comma separated) channels or @usernames
+    • MESSAGE:   Data to be sent to the receivers
+    """
+
+    receiver_list = parse_receivers(receivers)
+    aiko.do_command(Chat, get_service_filter(),
+        lambda chat: chat.send_message(receiver_list, message), terminate=True)
     aiko.process.run()
 
 if __name__ == "__main__":
