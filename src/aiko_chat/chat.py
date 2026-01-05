@@ -5,7 +5,7 @@
 # ./chat.py run
 # ./chat.py exit
 #
-# ./chat.py repl username [channel]
+# ./chat.py repl [username] [channel]
 # ./chat.py send recipient[,recipient ...]  message
 #
 # Usage: Low-level MQTT messages
@@ -22,6 +22,10 @@
 # To Do
 # ~~~~~
 # *** Create a simple bot ... initially, no LLM, then basic Ollama LLM :)
+#
+# - Fix: WARNING: Configuration using "localhost" MQTT server
+# - Fix: WARNING: Time-out for "incorrect_hostname" MQTT server
+# - Fix: WARNING: Registrar not found, when in a specified Connection State
 #
 # * Fix: Discover ChatServer via "owner" field ... support multiple concurrent
 #   - Default search "owner" should be "*"
@@ -98,6 +102,7 @@ class ChatREPLImpl(aiko.Actor):
 
         self.chat_server = None
 
+        self.current_channel = _CHANNEL_NAME
         self.history_store = None
         if _HISTORY_PATHNAME:
             self.history_store = FileHistoryStore(_HISTORY_PATHNAME)
@@ -111,23 +116,29 @@ class ChatREPLImpl(aiko.Actor):
             ChatServer, get_server_service_filter(),
             self.discovery_add_handler, self.discovery_remove_handler)
 
-    def command_handler(self, command, session):
-        command = command.strip()
-        if not command:
+    def command_handler(self, command_line, _repl_session):
+        command_line = command_line.strip()
+        if not command_line:
             return
-        if command in (":exit"):
+
+        tokens = command_line.split(" ")
+        command = tokens[0]
+        if command in [":change_channel", ":cc"]:
+            if len(tokens) > 1:
+                self.current_channel = tokens[1]
+        elif command == ":exit":
             self.repl_session.stop()
             aiko.process.terminate()
         else:
             if self.chat_server:
-                recipients = [_CHANNEL_NAME]
-                self.chat_server.send_message(recipients, command)
+                recipients = [self.current_channel]
+                self.chat_server.send_message(recipients, command_line)
 
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
         self.chat_server = service
-        server_topic_out = f"{service_details[0]}/out"
-        self.add_message_handler(self.server_message_handler, server_topic_out)
+        server_topic = f"{service_details[0]}/{self.current_channel}"
+        self.add_message_handler(self.server_message_handler, server_topic)
 
     def discovery_remove_handler(self, service_details):
         self.print(f"Disconnected {service_details[1]}: {service_details[0]}")
@@ -175,10 +186,10 @@ class ChatServerImpl(aiko.Actor):
         aiko.process.terminate()
 
     def send_message(self, recipients, message):
-        recipients = generate_recipients(recipients)
-        payload_out = f"{recipients}: {message}"
-        self.logger.info(f"send_message({payload_out})")
-        aiko.process.message.publish(self.topic_out, payload_out)
+        self.logger.info(f"send_message({recipients}: {message})")
+        for recipient in recipients:
+            topic_out = f"{self.topic_path}/{recipient}"
+            aiko.process.message.publish(topic_out, message)
 
 # --------------------------------------------------------------------------- #
 # Aiko Chat CLI: Distributed Actor commands
@@ -232,7 +243,7 @@ def send_command(recipients, message):
     ./chat.py send RECIPIENTS MESSAGE
 
     \b
-    • RECIPIENTS: List of one or more (comma separated) channels or @usernames
+    • RECIPIENTS: List of one or more (comma separated) #channels or @usernames
     • MESSAGE:    Data to be sent to the recipients
     """
 
