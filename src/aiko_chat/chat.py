@@ -126,6 +126,12 @@ class ChatREPLImpl(aiko.Actor):
         if command in [":change_channel", ":cc"]:
             if len(tokens) > 1:
                 self.current_channel = tokens[1]
+                self.remove_message_handler(
+                    self.server_message_handler, self.chat_server_topic)
+                self.chat_server_topic =  \
+                    f"{self.chat_server_topic_path}/{self.current_channel}"
+                self.add_message_handler(
+                    self.server_message_handler, self.chat_server_topic)
         elif command == ":exit":
             self.repl_session.stop()
             aiko.process.terminate()
@@ -137,8 +143,11 @@ class ChatREPLImpl(aiko.Actor):
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
         self.chat_server = service
-        server_topic = f"{service_details[0]}/{self.current_channel}"
-        self.add_message_handler(self.server_message_handler, server_topic)
+        self.chat_server_topic_path = service_details[0]
+        self.chat_server_topic =  \
+            f"{self.chat_server_topic_path}/{self.current_channel}"
+        self.add_message_handler(
+            self.server_message_handler, self.chat_server_topic)
 
     def discovery_remove_handler(self, service_details):
         self.print(f"Disconnected {service_details[1]}: {service_details[0]}")
