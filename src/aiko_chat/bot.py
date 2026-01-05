@@ -2,7 +2,8 @@
 #
 # Usage
 # ~~~~~
-# ./bot.py run
+# ./bot.py run botname
+# ./bot.py exit botname
 #
 # Or if aiko_chat module is not installed:
 # aiko_chat/src$ python -m aiko_chat.bot run
@@ -10,9 +11,9 @@
 # Notes
 # ~~~~~
 # Simple bot that connects to ChatServer and responds
-# to messages mentioning its name.
+# to messages mentioning @@botname.
 
-
+from abc import abstractmethod
 import click
 import signal
 
@@ -28,17 +29,26 @@ _ACTOR_BOT = "chat_bot"
 _PROTOCOL_BOT = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_BOT}:{_VERSION}"
 
 
+def get_chatbot_service_filter():
+    return aiko.ServiceFilter(
+        "*", _ACTOR_BOT, _PROTOCOL_BOT, "*", "*", "*")
+
+
 class ChatBot(aiko.Actor):
     aiko.Interface.default("ChatBot", "aiko_chat.chat.ChatBotImpl")
 
+    @abstractmethod
+    def exit(self):
+        pass
+
 
 class ChatBotImpl(aiko.Actor):
-    def __init__(self, context):
+    def __init__(self, context, botname):
         context.call_init(self, "Actor", context)
         self.share["source_file"] = f"v{_VERSION}⇒ {__file__}"
  
         self.chat_server = None
-        self.botname = "bot"
+        self.botname = botname
  
         signal.signal(signal.SIGINT, self.on_sigint)
 
@@ -58,14 +68,20 @@ class ChatBotImpl(aiko.Actor):
 
     def server_message_handler(self, _aiko, topic, payload_in):
         self.print(f"Payload      {payload_in}")
-        if f"@{self.botname}" in payload_in:
+        # To disngiush bots from humans, we use @@name for bots and @name for humans
+        if f"@@{self.botname}" in payload_in:
             if self.chat_server:
                 recipients = [_CHANNEL_NAME]
-                self.chat_server.send_message(recipients, "Hello, I am a bot!")
+                # More sophisticated bots can use AI to respond to payload_in here
+                self.chat_server.send_message(recipients, f"Hello, I am {self.botname}!")
 
 
     def on_sigint(self, signum, frame):
         aiko.process.terminate()
+
+    def exit(self, botname):
+        if botname in (self.botname, "all"):
+            aiko.process.terminate()
 
     def print(self, output):
         print(f"BOT: {output}")
@@ -78,16 +94,25 @@ def main():
     pass
 
 @main.command(name="run")
-def repl_command():
+@click.argument("botname", type=str, required=False, default="bot")
+def bot_command(botname):
     """Run ChatBot
 
-    ./bot.py run
+    ./bot.py run BOTNAME
     """
 
     tags = ["ec=true"]
     init_args = aiko.actor_args(_ACTOR_BOT, protocol=_PROTOCOL_BOT, tags=tags)
-    chat = aiko.compose_instance(ChatBotImpl, init_args)
-    chat.print('Type Ctrl+C to exit')
+    init_args["botname"] = botname
+    chatbot = aiko.compose_instance(ChatBotImpl, init_args)
+    chatbot.print('Type Ctrl+C to exit')
+    aiko.process.run()
+
+@main.command(name="exit", help="Stop ChatBot")
+@click.argument("botname", type=str, required=False, default="all")
+def exit_command(botname):
+    aiko.do_command(ChatBot, get_chatbot_service_filter(),
+        lambda chat: chat.exit(botname), terminate=True)
     aiko.process.run()
 
 if __name__ == "__main__":
