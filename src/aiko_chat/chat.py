@@ -14,7 +14,7 @@
 # PID="$(pgrep -f './chat.py' | head -n1)"
 # TOPIC="aiko/$HOST_NAME/$PID/1/in"
 #
-# mosquitto_pub -t $TOPIC -m "(send_message @all hello)"
+# mosquitto_pub -t $TOPIC -m "(send_message username @all hello)"
 # Notes
 # ~~~~~
 # recipients: channel(s) or @username(s): @all, @here
@@ -22,10 +22,6 @@
 # To Do
 # ~~~~~
 # *** Create a simple bot ... initially, no LLM, then basic Ollama LLM :)
-#
-# - Fix: WARNING: Configuration using "localhost" MQTT server
-# - Fix: WARNING: Time-out for "incorrect_hostname" MQTT server
-# - Fix: WARNING: Registrar not found, when in a specified Connection State
 #
 # * Fix: Discover ChatServer via "owner" field ... support multiple concurrent
 #   - Default search "owner" should be "*"
@@ -138,7 +134,9 @@ class ChatREPLImpl(aiko.Actor):
         else:
             if self.chat_server:
                 recipients = [self.current_channel]
-                self.chat_server.send_message(recipients, command_line)
+                username = ""
+                self.chat_server.send_message(
+                    username, recipients, command_line)
 
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
@@ -180,7 +178,7 @@ class ChatServer(aiko.Actor):
         pass
 
     @abstractmethod
-    def send_message(self, recipients, message):
+    def send_message(self, username, recipients, message):
         pass
 
 class ChatServerImpl(aiko.Actor):
@@ -194,8 +192,8 @@ class ChatServerImpl(aiko.Actor):
     def exit(self):
         aiko.process.terminate()
 
-    def send_message(self, recipients, message):
-        self.logger.info(f"send_message({recipients}: {message})")
+    def send_message(self, username, recipients, message):
+        self.logger.info(f"send_message({username} > {recipients}: {message})")
         for recipient in recipients:
             topic_out = f"{self.topic_path}/{recipient}"
             aiko.process.message.publish(topic_out, message)
@@ -257,8 +255,10 @@ def send_command(recipients, message):
     """
 
     recipient_list = parse_recipients(recipients)
+    username = ""
     aiko.do_command(ChatServer, get_server_service_filter(),
-        lambda chat: chat.send_message(recipient_list, message), terminate=True)
+        lambda chat: chat.send_message(username, recipient_list, message),
+        terminate=True)
     aiko.process.run()
 
 if __name__ == "__main__":

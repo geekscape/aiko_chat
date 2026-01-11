@@ -14,7 +14,7 @@
 CHAT_SERVER_PATH=_chat_server_
 HYPERSPACE_PATH=_hyperspace_
 CHANNELS_CATEGORY=channels
-CHANNELS_LIST=general,random
+CHANNELS_LIST=general,random,dog,llm,yolo
 USERS_CATEGORY=users
 
 __initialize() {
