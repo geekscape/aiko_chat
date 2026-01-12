@@ -21,11 +21,17 @@
 #
 # To Do
 # ~~~~~
-# *** Create a simple bot ... initially, no LLM, then basic Ollama LLM :)
+# *** Refactor LLM and Robot hacks
+#     - Separate functions
+#     - Provide simple conversational history
+#     - Dynamically loaded "channel features" ?
 #
 # * Fix: Discover ChatServer via "owner" field ... support multiple concurrent
 #   - Default search "owner" should be "*"
 #   - Default "username" should be the "$USERNAME", override with REPL argument
+#
+# - Chat commands: MQTT pub/sub, do_command()/do_request to Service
+#   - Connect Services/Actors via Dependencies and/or Categories ?
 #
 # - Support multiple channels via HyperSpace ?
 #   * Create Category and Channels with the correct protocol type and owner
@@ -54,6 +60,7 @@ import signal
 from typing import Iterable, List
 
 import aiko_services as aiko
+from aiko_services.examples.xgo_robot.robot import XGORobot
 from aiko_chat import FileHistoryStore, ReplSession
 
 __all__ = ["ChatREPL", "ChatREPLImpl", "ChatServer", "ChatServerImpl"]
@@ -61,6 +68,7 @@ __all__ = ["ChatREPL", "ChatREPLImpl", "ChatServer", "ChatServerImpl"]
 _CHANNEL_NAME = "general"  # TODO: Support multiple channels (CRUD)
 _HISTORY_PATHNAME = None
 _HYPERSPACE_NAME = "chat_space"
+_ROBOT_NAMES = ["laika", "oscar"]
 _VERSION = 0
 
 _ACTOR_REPL = "chat_repl"
@@ -112,6 +120,10 @@ class ChatREPLImpl(aiko.Actor):
             ChatServer, get_server_service_filter(),
             self.discovery_add_handler, self.discovery_remove_handler)
 
+        self.print('Type ":exit" or ":x" to exit')
+        self.print('Type ":help" or ":?" for instructions')
+        self.print(f"Channel: {self.current_channel}")
+
     def command_handler(self, command_line, _repl_session):
         command_line = command_line.strip()
         if not command_line:
@@ -128,9 +140,16 @@ class ChatREPLImpl(aiko.Actor):
                     f"{self.chat_server_topic_path}/{self.current_channel}"
                 self.add_message_handler(
                     self.server_message_handler, self.chat_server_topic)
-        elif command == ":exit":
+        elif command in [":exit", ":x"]:
             self.repl_session.stop()
             aiko.process.terminate()
+        elif command in [":help", ":?"]:
+            self.print(":change_channel, :cc  Change chat channel")
+            self.print(":exit,           :x   Exit Chat")
+            self.print(":help,           :?   Show instructions")
+            self.print(":list_channels,  :lc  List chat channels")
+        elif command in [":list_channels", ":lc"]:
+            self.print("general, llm, random, robot, yolo")
         else:
             if self.chat_server:
                 recipients = [self.current_channel]
@@ -139,7 +158,7 @@ class ChatREPLImpl(aiko.Actor):
                     username, recipients, command_line)
 
     def discovery_add_handler(self, service_details, service):
-        self.print(f"Connected    {service_details[1]}: {service_details[0]}")
+        self.print(f"Connected {service_details[1]}: {service_details[0]}")
         self.chat_server = service
         self.chat_server_topic_path = service_details[0]
         self.chat_server_topic =  \
@@ -189,14 +208,57 @@ class ChatServerImpl(aiko.Actor):
         self.hyperspace = aiko.HyperSpaceImpl.create_hyperspace(
             _HYPERSPACE_NAME)
 
+        self.llm = None
+
+        self.robot_server = None
+        for name in _ROBOT_NAMES:
+            service_discovery, service_discovery_handler = aiko.do_discovery(
+                XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
+                self.discovery_add_handler, self.discovery_remove_handler)
+
+    def discovery_add_handler(self, service_details, service):
+        print(f"Connected    {service_details[1]}: {service_details[0]}")
+        self.robot_server = service
+        self.robot_server_topic = f"{service_details[0]}/in"
+
+    def discovery_remove_handler(self, service_details):
+        print(f"Disconnected {service_details[1]}: {service_details[0]}")
+        self.robot_server = None
+
     def exit(self):
         aiko.process.terminate()
 
     def send_message(self, username, recipients, message):
         self.logger.info(f"send_message({username} > {recipients}: {message})")
         for recipient in recipients:
-            topic_out = f"{self.topic_path}/{recipient}"
-            aiko.process.message.publish(topic_out, message)
+            recipient_topic_out = f"{self.topic_path}/{recipient}"
+            aiko.process.message.publish(recipient_topic_out, message)
+
+            is_sexpression = False
+            sexp = message.strip()
+            is_sexp = len(sexp) >= 2 and sexp[0] == "(" and sexp[-1] == ")"
+
+            if recipient == "llm":
+                from httpx import ConnectError
+                from langchain_core.output_parsers import StrOutputParser
+                from langchain_core.prompts import ChatPromptTemplate
+                from aiko_services.examples.llm.elements import llm_load
+
+                SYSTEM_PROMPT = "Be brief."
+                chat_prompt = ChatPromptTemplate.from_messages([
+                    ("system", SYSTEM_PROMPT), ("user", "{input}")])
+                llm = llm_load("ollama")
+                output_parser = StrOutputParser()
+
+                chain = chat_prompt | llm | output_parser
+                response = chain.invoke({"input": message})  # --> str
+                aiko.process.message.publish(recipient_topic_out, response)
+
+            if recipient == "robot" and self.robot_server:
+                if is_sexp:
+                    aiko.process.message.publish(self.robot_server_topic, sexp)
+                else:
+                    self.robot_server.action(message)
 
 # --------------------------------------------------------------------------- #
 # Aiko Chat CLI: Distributed Actor commands
@@ -223,7 +285,6 @@ def repl_command():
     tags = ["ec=true"]       # TODO: Add ECProducer tag before add to Registrar
     init_args = aiko.actor_args(_ACTOR_REPL, protocol=_PROTOCOL_REPL, tags=tags)
     chat = aiko.compose_instance(ChatREPLImpl, init_args)
-    chat.print('Type ":exit" to exit')
     aiko.process.run()
     chat.join()  # wait until Chat ReplSession has cleaned-up
 
