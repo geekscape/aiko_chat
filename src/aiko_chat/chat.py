@@ -118,6 +118,8 @@ class ChatREPLImpl(aiko.Actor):
         signal.signal(signal.SIGWINCH, self.on_sigwinch)
         self.repl_session.start(daemon=True)
 
+        self.chat_server_share = {}
+
         service_discovery, service_discovery_handler = aiko.do_discovery(
             ChatServer, get_server_service_filter(),
             self.discovery_add_handler, self.discovery_remove_handler)
@@ -168,9 +170,27 @@ class ChatREPLImpl(aiko.Actor):
         self.add_message_handler(
             self.server_message_handler, self.chat_server_topic)
 
+        self.chat_server_topic_control =  \
+            f"{self.chat_server_topic_path}/control"
+        self.ec_consumer = aiko.ECConsumer(
+            self, 0, self.chat_server_share, self.chat_server_topic_control)
+        #   filter="channel_list")
+        self.ec_consumer.add_handler(self._ec_consumer_change_handler)
+
+    def _ec_consumer_change_handler(
+        self, client_id, command, item_name, item_value):
+
+    #   self.logger.info(
+    #       f"ECConsumer: {client_id}: {command} {item_name} {item_value}\n")
+        pass
+
     def discovery_remove_handler(self, service_details):
         self.print(f"Disconnected {service_details[1]}: {service_details[0]}")
+        if self.ec_consumer:
+            self.ec_consumer.terminate()
+        self.ec_consumer = None
         self.chat_server = None
+        self.chat_server_share = {}
 
     def join(self):
         self.repl_session.join()  # wait until background thread has cleaned-up
@@ -211,6 +231,9 @@ class ChatServerImpl(aiko.Actor):
 
         self.hyperspace = aiko.HyperSpaceImpl.create_hyperspace(
             _HYPERSPACE_NAME)
+        self.channels = self.hyperspace.share["entries"]["channels"]
+        self.channels_list = self.channels.share["entries"]
+        self.share["channel_list"] = self.channels_list
 
         self.llm = None
 
@@ -249,10 +272,6 @@ class ChatServerImpl(aiko.Actor):
             recipient_topic_out = f"{self.topic_path}/{recipient}"
             aiko.process.message.publish(recipient_topic_out, message)
 
-            is_sexpression = False
-            sexp = message.strip()
-            is_sexp = len(sexp) >= 2 and sexp[0] == "(" and sexp[-1] == ")"
-
             if recipient == "llm":
                 response = "LLM is not enabled"
                 if self.share["llm_enabled"]:
@@ -261,7 +280,61 @@ class ChatServerImpl(aiko.Actor):
                     from langchain_core.prompts import ChatPromptTemplate
                     from aiko_services.examples.llm.elements import llm_load
 
+                    message_lower = message.lower()
+                    is_robot_command =  any(
+                      name in message_lower for name in _ROBOT_NAMES)
+
+                    """
+  "fall":         1, "stand":           2, "crawl":      3, "circle":       4,
+  "step":         5, "squat":           6, "roll":       7, "pitch":        8,
+  "yaw":          9, "roll_pitch_yaw": 10, "pee":       11, "sit":         12,
+  "beckon":      13, "stretch":        14, "wave":      15, "wiggle_body": 16,
+  "wiggle_tail": 17, "sniff":          18, "shake_paw": 19, "arm":         20
+}
+                    """
+
                     SYSTEM_PROMPT = "Be terse"
+                    if is_robot_command:
+                        SYSTEM_PROMPT = """
+You only output correctly formatted S-Expressions.
+Never provide explanations or examples.
+Think carefully about the input and choose an appropriate valid S-Expression
+from the following lists ...
+If the user input is in the form of a command, then valid S-Expressions are
+- (action arm lower)     ;; when finished playing
+- (action arm raise)     ;; when getting ready to catch a ball
+- (action backwards)
+- (action crawl)         ;; when herding a sheep
+- (action forwards)
+- (action hand close)
+- (action hand open)
+- (action pee)           ;; when your bladder is full
+- (action pitch down)    ;; lower head downwards when things make you sad
+- (action pitch up)      ;; raise head upwards when happy or excited
+- (action reset)
+- (action sit)           ;; sit down
+- (action sniff)         ;; when food is mentioned or detected
+- (action stop)          ;; stop moving
+- (action stretch)       ;; stretch your muscles when you wake up
+- (action turn left)
+- (action turn right)
+- (action wiggle_tail)   ;; shows when you are happy
+If the user input query closely matches these S-Expressions function names
+- (get_temperature location)  ;; location = Melbourne
+For all other user input, then valid S-Expressions are
+- (response YOUR REPLY) ;; YOUR REPLY maximum length is 12 words
+If you don't know what to do then reply using this valid S-Expression
+- (error diagnostic_message)
+Never say the word"xgomini2", instead say "robot dog".
+Your state information when relevant may be used in your response messages
+- name: Oscar
+- type: xgomini2
+- goals: being happy
+- interests: fetching balls
+- best friend: octopus
+"""
+                    #   SYSTEM_PROMPT += f"- see: {detections}"
+
                     chat_prompt = ChatPromptTemplate.from_messages([
                         ("system", SYSTEM_PROMPT), ("user", "{input}")])
                     llm = llm_load("ollama")
@@ -270,16 +343,29 @@ class ChatServerImpl(aiko.Actor):
                     chain = chat_prompt | llm | output_parser
                     response = chain.invoke({"input": message})  # --> str
 
+                    if is_robot_command:
+                        self.send_robot(username, "robot", response)
+
                 aiko.process.message.publish(recipient_topic_out, response)
 
-            if recipient == "robot" and self.robot_server:
-                if is_sexp:
-                    aiko.process.message.publish(self.robot_server_topic, sexp)
-                else:
-                    self.robot_server.action(message)
+            if recipient == "robot":
+                self.send_robot(username, recipient, message)
 
             if recipient == "yolo":
                 pass
+
+    def send_robot(self, username, recipient, message):
+        self.logger.info(f"DEBUG({username} > {recipient}: {message})")
+    #   if self.robot_server and username == self.share["user"]:
+        if self.robot_server:
+            sexp = message.strip()
+            is_sexp = len(sexp) >= 2 and sexp[0] == "(" and sexp[-1] == ")"
+
+            self.logger.info(f"ROBOT({username} > {recipient}: {message})")
+            if is_sexp:
+                aiko.process.message.publish(self.robot_server_topic, sexp)
+            else:
+                self.robot_server.action(message)
 
 # --------------------------------------------------------------------------- #
 # Aiko Chat CLI: Distributed Actor commands
