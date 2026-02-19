@@ -64,7 +64,10 @@ import aiko_services as aiko
 from aiko_services.examples.xgo_robot.robot import XGORobot
 from aiko_chat import FileHistoryStore, ReplSession
 
-__all__ = ["ChatREPL", "ChatREPLImpl", "ChatServer", "ChatServerImpl"]
+__all__ = [
+    "ChatREPL", "ChatREPLImpl", "ChatServer", "ChatServerImpl",
+    "get_server_service_filter"
+]
 
 _CHANNEL_NAME = "general"  # TODO: Support multiple channels (CRUD)
 _HISTORY_PATHNAME = None

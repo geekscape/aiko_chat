@@ -18,10 +18,12 @@ import click
 import signal
 
 import aiko_services as aiko
-from .chat import ChatServer, get_server_service_filter
+from aiko_chat import ChatServer, get_server_service_filter
 
 __all__ = ["ChatBot", "ChatBotImpl"]
 
+# To distinguish bots from humans, we use @@name for bots and @name for humans
+_BOT_NAME = "@@bot"
 _CHANNEL_NAME = "general"
 _VERSION = 0
 
@@ -59,7 +61,7 @@ class ChatBotImpl(aiko.Actor):
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
         self.chat_server = service
-        server_topic_out = f"{service_details[0]}/out"
+        server_topic_out = f"{service_details[0]}/{_CHANNEL_NAME}"
         self.add_message_handler(self.server_message_handler, server_topic_out)
 
     def discovery_remove_handler(self, service_details):
@@ -68,12 +70,12 @@ class ChatBotImpl(aiko.Actor):
 
     def server_message_handler(self, _aiko, topic, payload_in):
         self.print(f"Payload      {payload_in}")
-        # To disngiush bots from humans, we use @@name for bots and @name for humans
-        if f"@@{self.botname}" in payload_in:
-            if self.chat_server:
-                recipients = [_CHANNEL_NAME]
-                # More sophisticated bots can use AI to respond to payload_in here
-                self.chat_server.send_message(recipients, f"Hello, I am {self.botname}!")
+        if f"{self.botname}" in payload_in:
+            if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack !
+                if self.chat_server:
+                    recipients = [_CHANNEL_NAME]
+                    # More sophisticated bots can use AI to respond to payload_in here
+                    self.chat_server.send_message(self.botname, recipients, f"Hello, I am {self.botname} !!!!")
 
 
     def on_sigint(self, signum, frame):
@@ -94,7 +96,7 @@ def main():
     pass
 
 @main.command(name="run")
-@click.argument("botname", type=str, required=False, default="bot")
+@click.argument("botname", type=str, required=False, default=_BOT_NAME)
 def bot_command(botname):
     """Run ChatBot
 
