@@ -23,7 +23,7 @@ from aiko_chat import ChatServer, get_server_service_filter
 __all__ = ["ChatBot", "ChatBotImpl"]
 
 # To distinguish bots from humans, we use @@name for bots and @name for humans
-_BOT_NAME = "@@bot"
+_BOT_NAME = "@@chatbot"
 _CHANNEL_NAME = "general"
 _VERSION = 0
 
@@ -37,20 +37,29 @@ def get_chatbot_service_filter():
 
 
 class ChatBot(aiko.Actor):
-    aiko.Interface.default("ChatBot", "aiko_chat.chat.ChatBotImpl")
+    aiko.Interface.default("ChatBot", "aiko_chat.bot.ChatBotImpl")
 
     @abstractmethod
-    def exit(self):
+    def terminate(self, botname="all"):
+        pass
+
+    # ChatBot developer must provide a process_message() implementation
+
+    @abstractmethod
+    def process_message(self, message, **kwargs):
+        """
+        Returns "status" indicating success or failure of processing the frame
+        """
         pass
 
 
 class ChatBotImpl(aiko.Actor):
-    def __init__(self, context, botname):
+    def __init__(self, context):
         context.call_init(self, "Actor", context)
         self.share["source_file"] = f"v{_VERSION}⇒ {__file__}"
  
         self.chat_server = None
-        self.botname = botname
+        self.botname = _BOT_NAME
  
         signal.signal(signal.SIGINT, self.on_sigint)
 
@@ -69,6 +78,25 @@ class ChatBotImpl(aiko.Actor):
         self.chat_server = None
 
     def server_message_handler(self, _aiko, topic, payload_in):
+        self.process_message(payload_in)
+
+    def on_sigint(self, signum, frame):
+        aiko.process.terminate()
+
+    def terminate(self, botname="all"):
+        if botname in (self.botname, "all"):
+            aiko.process.terminate()
+
+    def print(self, output):
+        print(f"BOT: {output}")
+
+
+class SampleChatBot(ChatBot):
+    def __init__(self, context: ChatBot, botname: str):
+        context.call_init(self, "ChatBot", context)
+        self.botname = botname
+
+    def process_message(self, payload_in, **kwargs):
         self.print(f"Payload      {payload_in}")
         if f"{self.botname}" in payload_in:
             if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack !
@@ -76,17 +104,6 @@ class ChatBotImpl(aiko.Actor):
                     recipients = [_CHANNEL_NAME]
                     # More sophisticated bots can use AI to respond to payload_in here
                     self.chat_server.send_message(self.botname, recipients, f"Hello, I am {self.botname} !!!!")
-
-
-    def on_sigint(self, signum, frame):
-        aiko.process.terminate()
-
-    def exit(self, botname):
-        if botname in (self.botname, "all"):
-            aiko.process.terminate()
-
-    def print(self, output):
-        print(f"BOT: {output}")
 
 
 @click.group()
@@ -106,7 +123,7 @@ def bot_command(botname):
     tags = ["ec=true"]
     init_args = aiko.actor_args(_ACTOR_BOT, protocol=_PROTOCOL_BOT, tags=tags)
     init_args["botname"] = botname
-    chatbot = aiko.compose_instance(ChatBotImpl, init_args)
+    chatbot = aiko.compose_instance(SampleChatBot, init_args)
     chatbot.print('Type Ctrl+C to exit')
     aiko.process.run()
 
@@ -114,7 +131,7 @@ def bot_command(botname):
 @click.argument("botname", type=str, required=False, default="all")
 def exit_command(botname):
     aiko.do_command(ChatBot, get_chatbot_service_filter(),
-        lambda chat: chat.exit(botname), terminate=True)
+        lambda chat: chat.terminate(botname), terminate=True)
     aiko.process.run()
 
 if __name__ == "__main__":
