@@ -23,8 +23,8 @@ from aiko_chat import ChatServer, get_server_service_filter
 __all__ = ["ChatBot", "ChatBotImpl"]
 
 # To distinguish bots from humans, we use @@name for bots and @name for humans
-_BOT_NAME = "@@chatbot"
-_CHANNEL_NAME = "general"
+_BOT_NAME = "@@chatbot"   # default bot name, can be overridden in subclasses
+_CHANNEL_NAME = "general" # default channel, can be changed using change_channel()
 _VERSION = 0
 
 _ACTOR_BOT = "chat_bot"
@@ -47,9 +47,6 @@ class ChatBot(aiko.Actor):
 
     @abstractmethod
     def process_message(self, message, **kwargs):
-        """
-        Returns "status" indicating success or failure of processing the frame
-        """
         pass
 
 
@@ -59,7 +56,9 @@ class ChatBotImpl(aiko.Actor):
         self.share["source_file"] = f"v{_VERSION}⇒ {__file__}"
  
         self.chat_server = None
+        self.chat_server_topic = None
         self.botname = _BOT_NAME
+        self.current_channel = _CHANNEL_NAME
  
         signal.signal(signal.SIGINT, self.on_sigint)
 
@@ -69,13 +68,26 @@ class ChatBotImpl(aiko.Actor):
 
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
+        self.chat_server_topic_path = f"{service_details[0]}"
         self.chat_server = service
-        server_topic_out = f"{service_details[0]}/{_CHANNEL_NAME}"
-        self.add_message_handler(self.server_message_handler, server_topic_out)
+        # (Re)connect to the chat server channel usinig the discovered details
+        self.change_channel(self.current_channel)
 
     def discovery_remove_handler(self, service_details):
         self.print(f"Disconnected {service_details[1]}: {service_details[0]}")
         self.chat_server = None
+
+    def change_channel(self, channel):
+        # Adapeted from :change_channel command in chat repl
+        if self.chat_server:
+            self.current_channel = channel
+            if self.chat_server_topic:
+                self.remove_message_handler(
+                    self.server_message_handler, self.chat_server_topic)
+            self.chat_server_topic =  \
+                f"{self.chat_server_topic_path}/{self.current_channel}"
+            self.add_message_handler(
+                self.server_message_handler, self.chat_server_topic)
 
     def server_message_handler(self, _aiko, topic, payload_in):
         self.process_message(payload_in)
@@ -99,9 +111,14 @@ class SampleChatBot(ChatBot):
     def process_message(self, payload_in, **kwargs):
         self.print(f"Payload      {payload_in}")
         if f"{self.botname}" in payload_in:
-            if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack !
+            if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack ! (prevent's processing bot's own response)
+                if "join" in payload_in:
+                    # Treat as instruction for bot to join a different channel
+                    channel = payload_in.split("join")[-1].strip()
+                    self.change_channel(channel)
+
                 if self.chat_server:
-                    recipients = [_CHANNEL_NAME]
+                    recipients = [self.current_channel]
                     # More sophisticated bots can use AI to respond to payload_in here
                     self.chat_server.send_message(self.botname, recipients, f"Hello, I am {self.botname} !!!!")
 
