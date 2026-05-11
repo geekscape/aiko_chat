@@ -23,8 +23,8 @@ from aiko_chat import ChatServer, get_server_service_filter
 __all__ = ["ChatBot", "ChatBotImpl"]
 
 # To distinguish bots from humans, we use @@name for bots and @name for humans
-_BOT_NAME = "@@bot"
-_CHANNEL_NAME = "general"
+_BOT_NAME = "@@chatbot"   # default bot name, can be overridden in subclasses
+_CHANNEL_NAME = "general" # default channel, can be changed using change_channel()
 _VERSION = 0
 
 _ACTOR_BOT = "chat_bot"
@@ -37,20 +37,28 @@ def get_chatbot_service_filter():
 
 
 class ChatBot(aiko.Actor):
-    aiko.Interface.default("ChatBot", "aiko_chat.chat.ChatBotImpl")
+    aiko.Interface.default("ChatBot", "aiko_chat.bot.ChatBotImpl")
 
     @abstractmethod
-    def exit(self):
+    def terminate(self, botname="all"):
+        pass
+
+    # ChatBot developer must provide a process_message() implementation
+
+    @abstractmethod
+    def process_message(self, message, **kwargs):
         pass
 
 
 class ChatBotImpl(aiko.Actor):
-    def __init__(self, context, botname):
+    def __init__(self, context):
         context.call_init(self, "Actor", context)
         self.share["source_file"] = f"v{_VERSION}⇒ {__file__}"
  
         self.chat_server = None
-        self.botname = botname
+        self.chat_server_topic = None
+        self.botname = _BOT_NAME
+        self.current_channel = _CHANNEL_NAME
  
         signal.signal(signal.SIGINT, self.on_sigint)
 
@@ -60,33 +68,59 @@ class ChatBotImpl(aiko.Actor):
 
     def discovery_add_handler(self, service_details, service):
         self.print(f"Connected    {service_details[1]}: {service_details[0]}")
+        self.chat_server_topic_path = f"{service_details[0]}"
         self.chat_server = service
-        server_topic_out = f"{service_details[0]}/{_CHANNEL_NAME}"
-        self.add_message_handler(self.server_message_handler, server_topic_out)
+        # (Re)connect to the chat server channel usinig the discovered details
+        self.change_channel(self.current_channel)
 
     def discovery_remove_handler(self, service_details):
         self.print(f"Disconnected {service_details[1]}: {service_details[0]}")
         self.chat_server = None
 
-    def server_message_handler(self, _aiko, topic, payload_in):
-        self.print(f"Payload      {payload_in}")
-        if f"{self.botname}" in payload_in:
-            if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack !
-                if self.chat_server:
-                    recipients = [_CHANNEL_NAME]
-                    # More sophisticated bots can use AI to respond to payload_in here
-                    self.chat_server.send_message(self.botname, recipients, f"Hello, I am {self.botname} !!!!")
+    def change_channel(self, channel):
+        # Adapeted from :change_channel command in chat repl
+        if self.chat_server:
+            self.current_channel = channel
+            if self.chat_server_topic:
+                self.remove_message_handler(
+                    self.server_message_handler, self.chat_server_topic)
+            self.chat_server_topic =  \
+                f"{self.chat_server_topic_path}/{self.current_channel}"
+            self.add_message_handler(
+                self.server_message_handler, self.chat_server_topic)
 
+    def server_message_handler(self, _aiko, topic, payload_in):
+        self.process_message(payload_in)
 
     def on_sigint(self, signum, frame):
         aiko.process.terminate()
 
-    def exit(self, botname):
+    def terminate(self, botname="all"):
         if botname in (self.botname, "all"):
             aiko.process.terminate()
 
     def print(self, output):
         print(f"BOT: {output}")
+
+
+class SampleChatBot(ChatBot):
+    def __init__(self, context: ChatBot, botname: str):
+        context.call_init(self, "ChatBot", context)
+        self.botname = botname
+
+    def process_message(self, payload_in, **kwargs):
+        self.print(f"Payload      {payload_in}")
+        if f"{self.botname}" in payload_in:
+            if not payload_in.endswith(" !!!!"):  # TODO: Fix this hack ! (prevent's processing bot's own response)
+                if "join" in payload_in:
+                    # Treat as instruction for bot to join a different channel
+                    channel = payload_in.split("join")[-1].strip()
+                    self.change_channel(channel)
+
+                if self.chat_server:
+                    recipients = [self.current_channel]
+                    # More sophisticated bots can use AI to respond to payload_in here
+                    self.chat_server.send_message(self.botname, recipients, f"Hello, I am {self.botname} !!!!")
 
 
 @click.group()
@@ -106,7 +140,7 @@ def bot_command(botname):
     tags = ["ec=true"]
     init_args = aiko.actor_args(_ACTOR_BOT, protocol=_PROTOCOL_BOT, tags=tags)
     init_args["botname"] = botname
-    chatbot = aiko.compose_instance(ChatBotImpl, init_args)
+    chatbot = aiko.compose_instance(SampleChatBot, init_args)
     chatbot.print('Type Ctrl+C to exit')
     aiko.process.run()
 
@@ -114,7 +148,7 @@ def bot_command(botname):
 @click.argument("botname", type=str, required=False, default="all")
 def exit_command(botname):
     aiko.do_command(ChatBot, get_chatbot_service_filter(),
-        lambda chat: chat.exit(botname), terminate=True)
+        lambda chat: chat.terminate(botname), terminate=True)
     aiko.process.run()
 
 if __name__ == "__main__":
