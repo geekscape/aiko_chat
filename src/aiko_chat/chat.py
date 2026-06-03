@@ -44,7 +44,6 @@
 # - Implement "ChatServer.topic_out" Dependency link ...
 #   - "ChatServer.topic_out" --[function_call]--> "ChatREPL.topic_in"
 #
-# - Add send_message() properties: timestamp, username
 #
 # - UI: CLI (REPL), TUI (Dashboard plug-in), Web
 #   - Implement ":commands", e.g ":help" as dynamic plug-ins
@@ -57,8 +56,10 @@
 
 from abc import abstractmethod
 import click
+import json
 import os
 import signal
+import time
 from typing import Iterable, List
 
 import aiko_services as aiko
@@ -98,6 +99,30 @@ def parse_recipients(recipients: str | None) -> List[str]:
     if not recipients:
         return []
     return list(filter(None, map(str.strip, recipients.split(","))))
+
+def generate_payload(username, channel, message):
+    # Put sender identity on the wire (closes the "Add send_message()
+    # properties: timestamp, username" TODO). #2 threaded `username` through
+    # the call signature; this publishes it so consumers (UIs, bridges) can
+    # attribute each message instead of seeing only the bare text.
+    return json.dumps({
+        "username": username,
+        "channel": channel,
+        "timestamp": time.time(),
+        "message": message,
+    })
+
+def format_incoming(payload_in):
+    # Render a structured payload as "username: message"; pass any legacy
+    # bare-string payload through unchanged (forward/backward compatible).
+    try:
+        data = json.loads(payload_in)
+    except (TypeError, ValueError):
+        return payload_in
+    if isinstance(data, dict) and "message" in data:
+        prefix = data.get("username") or data.get("channel", "")
+        return f"{prefix}: {data['message']}" if prefix else data["message"]
+    return payload_in
 
 # --------------------------------------------------------------------------- #
 # Aiko ChatREPL: Interface and Implementation
@@ -201,7 +226,7 @@ class ChatREPLImpl(aiko.Actor):
         self.repl_session.join()  # wait until background thread has cleaned-up
 
     def server_message_handler(self, _aiko, topic, payload_in):
-        self.print(payload_in)
+        self.print(format_incoming(payload_in))
 
     def on_sigint(self, signum, frame):
         self.repl_session.stop()
@@ -275,7 +300,8 @@ class ChatServerImpl(aiko.Actor):
 
         for recipient in recipients:
             recipient_topic_out = f"{self.topic_path}/{recipient}"
-            aiko.process.message.publish(recipient_topic_out, message)
+            payload_out = generate_payload(username, recipient, message)
+            aiko.process.message.publish(recipient_topic_out, payload_out)
 
             if recipient == "llm":
                 response = "LLM is not enabled"
