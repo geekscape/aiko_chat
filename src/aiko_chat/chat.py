@@ -19,6 +19,11 @@
 # ~~~~~
 # recipients: channel(s) or @username(s): @all, @here
 #
+# Protocol
+# ~~~~~~~~
+# V1: 2026-06-08: Messages include username and timestamp (backward compatible)
+# V0: 2025-12-23: Initial version
+#
 # To Do
 # ~~~~~
 # *** Refactor LLM and Robot hacks
@@ -30,6 +35,9 @@
 # * Fix: Discover ChatServer via "owner" field ... support multiple concurrent
 #   - Default search "owner" should be "*"
 #   - Default "username" should be the "$USERNAME", override with REPL argument
+#
+# * Replace use of JSON with S-Expressions, i.e parser() and generator()
+# * Replace hand-coded protocol messages with function calls (design principle)
 #
 # - Chat commands: MQTT pub/sub, do_command()/do_request to Service
 #   - Connect Services/Actors via Dependencies and/or Categories ?
@@ -76,7 +84,7 @@ _HISTORY_PATHNAME = None
 _HYPERSPACE_NAME = "chat_space"
 _ROBOT_NAMES = ["laika", "oscar"]
 _ADMIN = "andyg"
-_VERSION = 0
+_VERSION = 1
 
 _ACTOR_REPL = "chat_repl"
 _PROTOCOL_REPL = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_REPL}:{_VERSION}"
