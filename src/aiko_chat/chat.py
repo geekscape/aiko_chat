@@ -71,6 +71,7 @@ import time
 from typing import Iterable, List
 
 import aiko_services as aiko
+from aiko_services.main.utilities import generate, parse
 from aiko_services.examples.xgo_robot.robot import XGORobot
 from aiko_chat import FileHistoryStore, ReplSession
 
@@ -109,11 +110,13 @@ def parse_recipients(recipients: str | None) -> List[str]:
     return list(filter(None, map(str.strip, recipients.split(","))))
 
 def generate_payload(username, channel, message):
-    # Put sender identity on the wire (closes the "Add send_message()
-    # properties: timestamp, username" TODO). #2 threaded `username` through
-    # the call signature; this publishes it so consumers (UIs, bridges) can
-    # attribute each message instead of seeing only the bare text.
-    return json.dumps({
+    # Express the outgoing message as an Aiko function call ("message") and let
+    # the framework's pluggable serializer marshal it, instead of hand-rolling
+    # the wire format here. `generate()` emits an S-expression today and can be
+    # swapped to JSON/AVRO without touching this code -- so a developer deals in
+    # function calls and their arguments, not wire protocols. Sender identity
+    # (username, channel, timestamp) rides along as the call's arguments.
+    return generate("message", {
         "username": username,
         "channel": channel,
         "timestamp": time.time(),
@@ -121,16 +124,32 @@ def generate_payload(username, channel, message):
     })
 
 def format_incoming(payload_in):
-    # Render a structured payload as "username: message"; pass any legacy
-    # bare-string payload through unchanged (forward/backward compatible).
+    # Render a structured payload as "username: message". Decodes the framework
+    # S-expression first, then falls back to the legacy JSON payload, then to a
+    # bare string -- so older publishers keep working (forward/backward compat).
+    fields = _decode_message(payload_in)
+    if fields is None:
+        return payload_in
+    prefix = fields.get("username") or fields.get("channel", "")
+    message = fields.get("message", "")
+    return f"{prefix}: {message}" if prefix else message
+
+def _decode_message(payload_in):
+    # 1) Framework S-expression: (message username: ... message: ...)
+    try:
+        command, fields = parse(payload_in)
+        if command == "message" and isinstance(fields, dict):
+            return fields
+    except Exception:
+        pass
+    # 2) Legacy JSON payload from the previous wire format.
     try:
         data = json.loads(payload_in)
+        if isinstance(data, dict) and "message" in data:
+            return data
     except (TypeError, ValueError):
-        return payload_in
-    if isinstance(data, dict) and "message" in data:
-        prefix = data.get("username") or data.get("channel", "")
-        return f"{prefix}: {data['message']}" if prefix else data["message"]
-    return payload_in
+        pass
+    return None
 
 # --------------------------------------------------------------------------- #
 # Aiko ChatREPL: Interface and Implementation
