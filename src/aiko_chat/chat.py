@@ -81,6 +81,7 @@ __all__ = [
 ]
 
 _CHANNEL_NAME = "general"  # TODO: Support multiple channels (CRUD)
+_MESSAGE_COMMAND = "message"  # Aiko function-call verb for a broadcast chat message
 _HISTORY_PATHNAME = None
 _HYPERSPACE_NAME = "chat_space"
 _ROBOT_NAMES = ["laika", "oscar"]
@@ -116,7 +117,7 @@ def generate_payload(username, channel, message):
     # swapped to JSON/AVRO without touching this code -- so a developer deals in
     # function calls and their arguments, not wire protocols. Sender identity
     # (username, channel, timestamp) rides along as the call's arguments.
-    return generate("message", {
+    return generate(_MESSAGE_COMMAND, {
         "username": username,
         "channel": channel,
         "timestamp": time.time(),
@@ -136,11 +137,16 @@ def format_incoming(payload_in):
 
 def _decode_message(payload_in):
     # 1) Framework S-expression: (message username: ... message: ...)
+    #    Require the "message" field (mirroring the JSON branch) so a malformed
+    #    call like (message username: nick) falls through instead of rendering
+    #    as an empty "nick: ". Catch only the parser's decode failures, not
+    #    every Exception, so real bugs surface instead of silently degrading.
     try:
         command, fields = parse(payload_in)
-        if command == "message" and isinstance(fields, dict):
+        if command == _MESSAGE_COMMAND and isinstance(fields, dict) \
+                and "message" in fields:
             return fields
-    except Exception:
+    except (ValueError, IndexError, TypeError):
         pass
     # 2) Legacy JSON payload from the previous wire format.
     try:
