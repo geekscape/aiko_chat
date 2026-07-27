@@ -1,0 +1,18 @@
+{
+  // Aiko Chat is HAND-FORMATTED to match Andy's style — no auto-formatter in
+  // this repo. This is a workspace override; it does not affect your other
+  // projects' global format-on-save.
+  "editor.formatOnSave": false,
+  "[python]": {
+    "editor.formatOnSave": false,
+    // 80-column guide to hand-format against (Andy's stated preference).
+    "editor.rulers": [80]
+  },
+
+  // flake8 lints (matches Andy's CI). A linter CHECKS, it never reformats —
+  // only his hard-gate codes, since line length isn't enforced upstream.
+  "python.linting.enabled": true,
+  "python.linting.flake8Enabled": true,
+  "python.linting.pylintEnabled": false,
+  "python.linting.flake8Args": ["--select=E9,F63,F7,F82"]
+}
