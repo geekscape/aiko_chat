@@ -31,6 +31,7 @@ from typing import Iterable, List
 
 __all__ = [
     "generate_recipients", "parse_recipients",
+    "message_record", "encode_record",
     "generate_payload", "format_incoming",
 ]
 
@@ -49,20 +50,34 @@ def parse_recipients(recipients: str | None) -> List[str]:
         return []
     return list(filter(None, map(str.strip, recipients.split(","))))
 
-def generate_payload(username, channel, message):
-    from aiko_services.main.utilities import generate  # lazy: keep import cheap
-    # Express the outgoing message as an Aiko function call ("message") and let
-    # the framework's pluggable serializer marshal it, instead of hand-rolling
-    # the wire format here. `generate()` emits an S-expression today and can be
-    # swapped to JSON/AVRO without touching this code -- so a developer deals in
-    # function calls and their arguments, not wire protocols. Sender identity
-    # (username, channel, timestamp) rides along as the call's arguments.
-    return generate(_MESSAGE_COMMAND, {
+def message_record(username, channel, message, timestamp=None):
+    # The single definition of a chat message's field set (the "message"
+    # function-call arguments). Both the wire encoder and any store (e.g. the
+    # ChatServer's recent-message history) build from this one shape, so the
+    # published bytes and the stored record can't drift apart. `timestamp`
+    # defaults to now; pass it explicitly to store and publish one identical
+    # record.
+    return {
         "username": username,
         "channel": channel,
-        "timestamp": time.time(),
+        "timestamp": time.time() if timestamp is None else timestamp,
         "message": message,
-    })
+    }
+
+def encode_record(record):
+    # Marshal a message record (from message_record) to the wire. Expressing the
+    # message as an Aiko function call ("message") lets the framework's pluggable
+    # serializer own the wire format -- `generate()` emits an S-expression today
+    # and can be swapped to JSON/AVRO without touching this code.
+    from aiko_services.main.utilities import generate  # lazy: keep import cheap
+    return generate(_MESSAGE_COMMAND, record)
+
+def generate_payload(username, channel, message):
+    # Convenience: build a fresh record and encode it in one step (unchanged
+    # public behaviour). Callers that also need to STORE the record should use
+    # message_record() + encode_record() so the stored and published record are
+    # the same object.
+    return encode_record(message_record(username, channel, message))
 
 def format_incoming(payload_in):
     # Render a structured payload as "username: message". Decodes the framework

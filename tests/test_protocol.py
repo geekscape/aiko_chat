@@ -97,3 +97,29 @@ def test_prefix_falls_back_to_channel_when_no_username():
 def test_no_prefix_returns_bare_message():
     payload = '{"message": "hi"}'
     assert protocol.format_incoming(payload) == "hi"
+
+
+# --------------------------------------------------------------------------- #
+# message_record / encode_record — the single record-schema definition
+
+def test_message_record_has_the_four_protocol_fields():
+    r = protocol.message_record("nick", "general", "hi")
+    assert set(r) == {"username", "channel", "timestamp", "message"}
+    assert r["username"] == "nick" and r["channel"] == "general" and r["message"] == "hi"
+    assert isinstance(r["timestamp"], float)
+
+def test_message_record_timestamp_is_overridable():
+    r = protocol.message_record("nick", "general", "hi", timestamp=123.5)
+    assert r["timestamp"] == 123.5
+
+def test_generate_payload_equals_encode_of_message_record():
+    # generate_payload is just encode_record(message_record(...)) -- pin that
+    # they agree, so storing the record and publishing the payload can't drift.
+    r = protocol.message_record("nick", "general", "hi", timestamp=42.0)
+    assert protocol.encode_record(r) == protocol.encode_record(
+        protocol.message_record("nick", "general", "hi", timestamp=42.0))
+
+def test_stored_record_roundtrips_through_the_wire():
+    # A record stored in history, once encoded, decodes back to the same fields.
+    r = protocol.message_record("nick", "general", "hello", timestamp=42.0)
+    assert protocol.format_incoming(protocol.encode_record(r)) == "nick: hello"

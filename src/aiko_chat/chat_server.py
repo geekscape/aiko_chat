@@ -16,13 +16,15 @@ from abc import abstractmethod
 import aiko_services as aiko
 from aiko_services.examples.xgo_robot.robot import XGORobot
 
-from .protocol import generate_payload, _VERSION
+from .protocol import message_record, encode_record, _VERSION
+from .history import ChannelHistory
 
 __all__ = ["ChatServer", "ChatServerImpl", "get_server_service_filter"]
 
 _HYPERSPACE_NAME = "chat_space"
 _ROBOT_NAMES = ["laika", "oscar"]
 _ADMIN = "andyg"
+_HISTORY_DEFAULT_LIMIT = 50  # recent messages returned to a joining client
 
 _ACTOR_SERVER = "chat_server"
 _PROTOCOL_SERVER = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_SERVER}:{_VERSION}"
@@ -47,6 +49,10 @@ class ChatServer(aiko.Actor):
     def send_message(self, username, recipients, message):
         pass
 
+    @abstractmethod
+    def get_history(self, channel, limit):
+        pass
+
 class ChatServerImpl(aiko.Actor):
     def __init__(self, context, llm_enabled=False):
         context.call_init(self, "Actor", context)
@@ -59,6 +65,12 @@ class ChatServerImpl(aiko.Actor):
         self.channels = self.hyperspace.share["entries"]["channels"]
         self.channels_list = self.channels.share["entries"]
         self.share["channel_list"] = self.channels_list
+
+        # Recent-context buffer so a client joining a channel sees recent
+        # messages instead of a blank screen. v1: in-memory recent buffer, not
+        # an authoritative store -- durable aiko-native backing is the open
+        # design question (see the paired Discussion).
+        self.history = ChannelHistory()
 
         self.llm = None
 
@@ -80,6 +92,13 @@ class ChatServerImpl(aiko.Actor):
     def exit(self):
         aiko.process.terminate()
 
+    def get_history(self, channel, limit=_HISTORY_DEFAULT_LIMIT):
+        # Recent messages for `channel`, oldest-first, so a joining client can
+        # render context before live messages arrive. The delivery path (how a
+        # client requests this on join and how the server replies to just that
+        # client over pub/sub) is the proposed next step -- see the PR/Discussion.
+        return self.history.recent(channel, limit)
+
     def send_message(self, username, recipients, message):
         self.logger.info(f"send_message({username} > {recipients}: {message})")
 
@@ -95,8 +114,12 @@ class ChatServerImpl(aiko.Actor):
 
         for recipient in recipients:
             recipient_topic_out = f"{self.topic_path}/{recipient}"
-            payload_out = generate_payload(username, recipient, message)
-            aiko.process.message.publish(recipient_topic_out, payload_out)
+            # Build the record once, so the published bytes and the stored
+            # history entry are the same record (identical timestamp).
+            record = message_record(username, recipient, message)
+            aiko.process.message.publish(
+                recipient_topic_out, encode_record(record))
+            self.history.append(recipient, record)
 
             if recipient == "llm":
                 response = "LLM is not enabled"
