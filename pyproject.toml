@@ -20,6 +20,12 @@ dependencies = [
 [project.scripts]
 aiko_chat = "aiko_chat.chat:main"
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
