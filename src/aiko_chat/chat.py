@@ -68,6 +68,21 @@
 #
 # - Security: ACLs (roles, users), encryption (shared symmetric keys) ?
 
+# Direct execution ("./chat.py repl", documented above) runs this file as
+# __main__, which has no parent package -- so the relative imports below have
+# nothing to resolve against and raise ImportError. Bind the module to its
+# package, per PEP 366, and put src/ on the path for a checkout that has not
+# been pip installed. One set of relative imports then serves all three entry
+# points: ./chat.py, python -m aiko_chat.chat, and the aiko_chat console script.
+if __package__ in (None, ""):
+    import os.path
+    import sys
+
+    sys.path.insert(
+        0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    __package__ = "aiko_chat"
+    import aiko_chat            # noqa: F401  # PEP 366: parent must be imported
+
 import click
 
 import aiko_services as aiko
