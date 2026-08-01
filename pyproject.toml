@@ -14,7 +14,7 @@ keywords = ["agents", "distributed"]
 license-files = ["LICENCE"]
 
 dependencies = [
-# "aiko_services>=0.6"
+  "aiko_services>=0.7"
 ]
 
 [project.scripts]
