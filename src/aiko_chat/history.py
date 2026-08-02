@@ -117,6 +117,14 @@ class ChannelHistory:
             with open(entry, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line:
+                    if not line:
+                        continue
+                    # Skip a single corrupt/truncated line (e.g. a torn last
+                    # write) rather than aborting the whole channel's load -- a
+                    # recent-context buffer degrades to "the records that parse",
+                    # never to an empty channel because one line was damaged.
+                    try:
                         buffer.append(json.loads(line))
+                    except ValueError:
+                        continue
             self._channels[channel] = buffer

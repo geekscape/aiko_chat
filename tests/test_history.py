@@ -119,3 +119,28 @@ def test_records_roundtrip_through_json_unchanged(tmp_path):
     history.ChannelHistory(path=str(tmp_path)).append("general", rec)
     reloaded = history.ChannelHistory(path=str(tmp_path)).recent("general", 1)[0]
     assert reloaded == rec
+
+
+def test_durable_load_skips_a_corrupt_line_and_keeps_the_rest(tmp_path):
+    # A single torn/corrupt JSONL line (e.g. a half-written last append) must not
+    # wipe the whole channel on restart -- the surviving records still load.
+    h1 = history.ChannelHistory(path=str(tmp_path))
+    h1.append("general", _rec("before"))
+    h1.append("general", _rec("after"))
+    channel_file = h1._channel_file("general")
+    with open(channel_file, "a", encoding="utf-8") as f:
+        f.write("{ this is not valid json\n")  # torn trailing line
+    h2 = history.ChannelHistory(path=str(tmp_path))
+    assert [r["message"] for r in h2.recent("general", 10)] == ["before", "after"]
+
+
+def test_durable_one_corrupt_channel_does_not_block_others(tmp_path):
+    # Corrupt data in one channel file must not abort loading a sibling channel.
+    h1 = history.ChannelHistory(path=str(tmp_path))
+    h1.append("general", _rec("g", channel="general"))
+    h1.append("random", _rec("r", channel="random"))
+    with open(h1._channel_file("general"), "w", encoding="utf-8") as f:
+        f.write("totally broken\n")  # general is now unparseable
+    h2 = history.ChannelHistory(path=str(tmp_path))
+    assert h2.recent("general", 10) == []            # corrupt channel -> empty
+    assert [r["message"] for r in h2.recent("random", 10)] == ["r"]  # sibling intact

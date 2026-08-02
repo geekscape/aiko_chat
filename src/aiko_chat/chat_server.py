@@ -122,8 +122,16 @@ class ChatServerImpl(aiko.Actor):
         # a channel broadcast) with item_count(N) + N response(payload), each
         # payload the same wire encoding as a live message so the client renders
         # it with the identical format_incoming path. Oldest-first.
-        # Wire args arrive as strings (S-expression), so coerce limit to int.
-        records = self.history.recent(channel, int(limit))
+        # Wire args arrive as strings (S-expression), so decode `limit` to an int
+        # ONCE at this boundary. A malformed value (non-numeric, None) must not
+        # crash this remotely-callable handler -- decode-or-default, then clamp to
+        # [0, _HISTORY_DEFAULT_LIMIT] so a client can't request an unbounded reply.
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = _HISTORY_DEFAULT_LIMIT
+        limit = max(0, min(limit, _HISTORY_DEFAULT_LIMIT))
+        records = self.history.recent(channel, limit)
         client = aiko.get_service_proxy(topic_path_response, ChatHistoryResponse)
         client.item_count(len(records))
         for record in records:
