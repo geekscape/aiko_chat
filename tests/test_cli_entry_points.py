@@ -40,11 +40,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-pytest.importorskip(
-    "aiko_services.examples.xgo_robot.robot",
-    reason="aiko_chat's CLI imports an aiko_services example not in a stock install")
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 _CHAT_PY = _SRC / "aiko_chat" / "chat.py"

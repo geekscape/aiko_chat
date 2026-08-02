@@ -14,7 +14,6 @@
 from abc import abstractmethod
 
 import aiko_services as aiko
-from aiko_services.examples.xgo_robot.robot import XGORobot
 
 from .protocol import message_record, encode_record, _VERSION
 from .history import ChannelHistory
@@ -25,6 +24,7 @@ _HYPERSPACE_NAME = "chat_space"
 _ROBOT_NAMES = ["laika", "oscar"]
 _ADMIN = "andyg"
 _HISTORY_DEFAULT_LIMIT = 50  # recent messages returned to a joining client
+_HISTORY_PATH = "chat_history"  # durable per-channel history dir (under CWD)
 
 _ACTOR_SERVER = "chat_server"
 _PROTOCOL_SERVER = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_SERVER}:{_VERSION}"
@@ -50,7 +50,19 @@ class ChatServer(aiko.Actor):
         pass
 
     @abstractmethod
-    def get_history(self, channel, limit):
+    def request_history(self, topic_path_response, channel, limit):
+        pass
+
+class ChatHistoryResponse(aiko.Actor):
+    # The reply interface the server calls back on the requesting client's own
+    # topic: item_count(N) then N response(payload) -- the aiko do_request /
+    # do_response convention (see examples/aloha_honua/aloha_honua_3.py).
+    @abstractmethod
+    def item_count(self, count):
+        pass
+
+    @abstractmethod
+    def response(self, payload):
         pass
 
 class ChatServerImpl(aiko.Actor):
@@ -67,18 +79,29 @@ class ChatServerImpl(aiko.Actor):
         self.share["channel_list"] = self.channels_list
 
         # Recent-context buffer so a client joining a channel sees recent
-        # messages instead of a blank screen. v1: in-memory recent buffer, not
-        # an authoritative store -- durable aiko-native backing is the open
-        # design question (see the paired Discussion).
-        self.history = ChannelHistory()
+        # messages instead of a blank screen. Durable (file-backed) so history
+        # survives a server restart; a recent-context buffer, NOT an
+        # authoritative store -- the aiko-native durable backing is a framework
+        # question raised with the maintainers, swappable behind this seam.
+        self.history = ChannelHistory(path=_HISTORY_PATH)
 
         self.llm = None
 
+        # Robot integration is optional: the xgo_robot example isn't part of a
+        # stock aiko_services install, so import it lazily and skip robot
+        # discovery when it's absent (the server still runs, robot-less).
         self.robot_server = None
-        for name in _ROBOT_NAMES:
-            service_discovery, service_discovery_handler = aiko.do_discovery(
-                XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
-                self.discovery_add_handler, self.discovery_remove_handler)
+        try:
+            from aiko_services.examples.xgo_robot.robot import XGORobot
+        except ImportError:
+            XGORobot = None
+            self.logger.info(
+                "xgo_robot example not installed; robot discovery disabled")
+        if XGORobot is not None:
+            for name in _ROBOT_NAMES:
+                service_discovery, service_discovery_handler = aiko.do_discovery(
+                    XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
+                    self.discovery_add_handler, self.discovery_remove_handler)
 
     def discovery_add_handler(self, service_details, service):
         print(f"Connected    {service_details[1]}: {service_details[0]}")
@@ -92,12 +115,19 @@ class ChatServerImpl(aiko.Actor):
     def exit(self):
         aiko.process.terminate()
 
-    def get_history(self, channel, limit=_HISTORY_DEFAULT_LIMIT):
-        # Recent messages for `channel`, oldest-first, so a joining client can
-        # render context before live messages arrive. The delivery path (how a
-        # client requests this on join and how the server replies to just that
-        # client over pub/sub) is the proposed next step -- see the PR/Discussion.
-        return self.history.recent(channel, limit)
+    def request_history(self, topic_path_response, channel,
+                        limit=_HISTORY_DEFAULT_LIMIT):
+        # A joining client requests recent history for `channel` and passes its
+        # OWN inbox topic as `topic_path_response`; we reply point-to-point (not
+        # a channel broadcast) with item_count(N) + N response(payload), each
+        # payload the same wire encoding as a live message so the client renders
+        # it with the identical format_incoming path. Oldest-first.
+        # Wire args arrive as strings (S-expression), so coerce limit to int.
+        records = self.history.recent(channel, int(limit))
+        client = aiko.get_service_proxy(topic_path_response, ChatHistoryResponse)
+        client.item_count(len(records))
+        for record in records:
+            client.response(encode_record(record))
 
     def send_message(self, username, recipients, message):
         self.logger.info(f"send_message({username} > {recipients}: {message})")

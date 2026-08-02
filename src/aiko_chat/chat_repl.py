@@ -19,6 +19,7 @@ __all__ = ["ChatREPL", "ChatREPLImpl"]
 
 _CHANNEL_NAME = "general"  # TODO: Support multiple channels (CRUD)
 _HISTORY_PATHNAME = None
+_HISTORY_LIMIT = 50  # recent messages to request when joining a channel
 
 _ACTOR_REPL = "chat_repl"
 _PROTOCOL_REPL = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_REPL}:{_VERSION}"
@@ -73,6 +74,7 @@ class ChatREPLImpl(aiko.Actor):
                     f"{self.chat_server_topic_path}/{self.current_channel}"
                 self.add_message_handler(
                     self.server_message_handler, self.chat_server_topic)
+                self._request_history(self.current_channel)
         elif command in [":exit", ":x"]:
             self.repl_session.stop()
             aiko.process.terminate()
@@ -98,6 +100,7 @@ class ChatREPLImpl(aiko.Actor):
             f"{self.chat_server_topic_path}/{self.current_channel}"
         self.add_message_handler(
             self.server_message_handler, self.chat_server_topic)
+        self._request_history(self.current_channel)
 
         self.chat_server_topic_control =  \
             f"{self.chat_server_topic_path}/control"
@@ -123,6 +126,21 @@ class ChatREPLImpl(aiko.Actor):
 
     def join(self):
         self.repl_session.join()  # wait until background thread has cleaned-up
+
+    def _request_history(self, channel):
+        # On joining `channel`, ask the server for recent messages and render
+        # them before live messages arrive. We pass our OWN inbox (self.topic_in)
+        # as the reply topic, so the server replies point-to-point to us. The
+        # response payloads are the same wire encoding as live messages, so
+        # format_incoming renders them identically. Records arrive oldest-first.
+        def response_handler(response):
+            for item in response:
+                self.print(format_incoming(item[0]))
+        aiko.do_request(
+            ChatServer, get_server_service_filter(),
+            lambda server: server.request_history(
+                self.topic_in, channel, _HISTORY_LIMIT),
+            response_handler, self.topic_in)
 
     def server_message_handler(self, _aiko, topic, payload_in):
         self.print(format_incoming(payload_in))

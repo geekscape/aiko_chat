@@ -74,3 +74,48 @@ def test_capacity_must_be_positive():
     import pytest
     with pytest.raises(ValueError):
         history.ChannelHistory(capacity=0)
+
+
+# --------------------------------------------------------------------------- #
+# Durable (file-backed) mode
+
+def test_durable_survives_a_restart(tmp_path):
+    h1 = history.ChannelHistory(path=str(tmp_path))
+    h1.append("general", _rec("persisted"))
+    h1.append("general", _rec("also"))
+    # A fresh instance on the same dir == a process restart.
+    h2 = history.ChannelHistory(path=str(tmp_path))
+    assert [r["message"] for r in h2.recent("general", 10)] == ["persisted", "also"]
+
+
+def test_durable_file_is_capped_on_disk(tmp_path):
+    h1 = history.ChannelHistory(capacity=3, path=str(tmp_path))
+    for i in range(5):
+        h1.append("general", _rec(f"m{i}"))
+    h2 = history.ChannelHistory(capacity=3, path=str(tmp_path))
+    assert [r["message"] for r in h2.recent("general", 100)] == ["m2", "m3", "m4"]
+
+
+def test_durable_channels_reload_independently(tmp_path):
+    h1 = history.ChannelHistory(path=str(tmp_path))
+    h1.append("general", _rec("g", channel="general"))
+    h1.append("random", _rec("r", channel="random"))
+    h2 = history.ChannelHistory(path=str(tmp_path))
+    assert [r["message"] for r in h2.recent("general", 10)] == ["g"]
+    assert [r["message"] for r in h2.recent("random", 10)] == ["r"]
+
+
+def test_durable_handles_filesystem_unsafe_channel_names(tmp_path):
+    # A channel name with a slash must not create nested dirs or collide.
+    weird = "team/ops #1"
+    h1 = history.ChannelHistory(path=str(tmp_path))
+    h1.append(weird, _rec("hi", channel=weird))
+    h2 = history.ChannelHistory(path=str(tmp_path))
+    assert [r["message"] for r in h2.recent(weird, 10)] == ["hi"]
+
+
+def test_records_roundtrip_through_json_unchanged(tmp_path):
+    rec = _rec("hello", channel="general", user="nick", ts=42.5)
+    history.ChannelHistory(path=str(tmp_path)).append("general", rec)
+    reloaded = history.ChannelHistory(path=str(tmp_path)).recent("general", 1)[0]
+    assert reloaded == rec
