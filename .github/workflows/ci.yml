@@ -11,6 +11,7 @@ name: CI
 
 on:
   push:
+    branches: [main]   # avoid double-runs with pull_request on same-repo branches
   pull_request:
 
 concurrency:
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   unit:
     name: unit + entry-point tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +36,7 @@ jobs:
 
   e2e:
     name: end-to-end smoke (broker + server + client)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

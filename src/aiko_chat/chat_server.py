@@ -70,6 +70,11 @@ class ChatServerImpl(aiko.Actor):
         try:
             from aiko_services.examples.xgo_robot.robot import XGORobot
         except ImportError:
+            # Deliberately broad within ImportError: the robot is a fully OPTIONAL
+            # integration, so ANY import failure -- the examples package absent
+            # (stock install) OR a heavy dep like cv2/numpy/Pillow missing -- should
+            # degrade to running robot-less rather than taking down the chat server.
+            # Non-import errors (a real bug in the module) still propagate.
             XGORobot = None
             self.logger.info(
                 "xgo_robot example not installed; robot discovery disabled")
