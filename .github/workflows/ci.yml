@@ -1,0 +1,68 @@
+name: CI
+
+# Two gates before green:
+#  - unit: the pure-leaf + entry-point tests (fast, no broker). Catches the
+#    #10-class regression -- test_cli_entry_points drives all three entry points
+#    (./chat.py, python -m, console script), which a diff review cannot.
+#  - e2e:  boots the REAL stack (mosquitto + registrar + ChatServer via
+#    chat_start.sh) and asserts a message round-trips. Catches stock-env import
+#    (#14), cold-start channel bootstrap (#12), and wire-protocol breakage that
+#    unit tests structurally cannot see.
+
+on:
+  push:
+    branches: [main]   # avoid double-runs with pull_request on same-repo branches
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit + entry-point tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install package + test deps
+        run: pip install -e ".[dev]"
+      - name: Import cleanly on a stock install (no examples)
+        run: python -c "import aiko_chat; from aiko_chat.chat_server import ChatServerImpl"
+      - name: Run tests
+        run: pytest -q
+
+  e2e:
+    name: end-to-end smoke (broker + server + client)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install mosquitto
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mosquitto mosquitto-clients
+      - name: Start an anonymous broker on :1883
+        run: |
+          sudo systemctl stop mosquitto 2>/dev/null || true
+          printf 'listener 1883\nallow_anonymous true\n' > /tmp/e2e-mosquitto.conf
+          mosquitto -c /tmp/e2e-mosquitto.conf -d
+          for _ in $(seq 1 10); do
+            mosquitto_sub -t '$SYS/broker/version' -C 1 -W 2 >/dev/null 2>&1 && break
+            sleep 1
+          done
+          mosquitto_sub -t '$SYS/broker/version' -C 1 -W 3
+      - name: Install package
+        run: pip install -e ".[dev]"
+      - name: End-to-end smoke test
+        env:
+          AIKO_MQTT_HOST: localhost
+        run: bash e2e/e2e_smoke.sh
+      - name: Robot-dispatch e2e (proves the Robot-interface decoupling)
+        env:
+          AIKO_MQTT_HOST: localhost
+        run: bash e2e/e2e_robot.sh
