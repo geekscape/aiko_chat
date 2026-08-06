@@ -16,6 +16,7 @@ from abc import abstractmethod
 import aiko_services as aiko
 
 from .protocol import generate_payload, _VERSION
+from .robot import Robot
 
 __all__ = ["ChatServer", "ChatServerImpl", "get_server_service_filter"]
 
@@ -61,28 +62,17 @@ class ChatServerImpl(aiko.Actor):
 
         self.llm = None
 
-        # Robot integration is optional: the xgo_robot example (and its heavy
-        # cv2/numpy/Pillow deps) isn't part of a stock aiko_services install, so
-        # import it lazily and skip robot discovery when it's absent. The server
-        # still runs, robot-less -- and `import aiko_chat` no longer requires the
-        # examples package (Discussion #14).
+        # Discover a robot service by the minimal `Robot` contract (see robot.py)
+        # rather than importing the concrete xgo_robot example -- so `import
+        # aiko_chat` needs no examples package or its heavy vision deps (Discussion
+        # #14), and the chat server no longer depends on a specific robot. If no
+        # robot is present, discovery simply never fires its add-handler and the
+        # server runs robot-less.
         self.robot_server = None
-        try:
-            from aiko_services.examples.xgo_robot.robot import XGORobot
-        except ImportError:
-            # Deliberately broad within ImportError: the robot is a fully OPTIONAL
-            # integration, so ANY import failure -- the examples package absent
-            # (stock install) OR a heavy dep like cv2/numpy/Pillow missing -- should
-            # degrade to running robot-less rather than taking down the chat server.
-            # Non-import errors (a real bug in the module) still propagate.
-            XGORobot = None
-            self.logger.info(
-                "xgo_robot example not installed; robot discovery disabled")
-        if XGORobot is not None:
-            for name in _ROBOT_NAMES:
-                service_discovery, service_discovery_handler = aiko.do_discovery(
-                    XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
-                    self.discovery_add_handler, self.discovery_remove_handler)
+        for name in _ROBOT_NAMES:
+            service_discovery, service_discovery_handler = aiko.do_discovery(
+                Robot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
+                self.discovery_add_handler, self.discovery_remove_handler)
 
     def discovery_add_handler(self, service_details, service):
         print(f"Connected    {service_details[1]}: {service_details[0]}")
