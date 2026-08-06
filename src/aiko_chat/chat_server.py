@@ -14,7 +14,6 @@
 from abc import abstractmethod
 
 import aiko_services as aiko
-from aiko_services.examples.xgo_robot.robot import XGORobot
 
 from .protocol import generate_payload, _VERSION
 
@@ -62,11 +61,23 @@ class ChatServerImpl(aiko.Actor):
 
         self.llm = None
 
+        # Robot integration is optional: the xgo_robot example (and its heavy
+        # cv2/numpy/Pillow deps) isn't part of a stock aiko_services install, so
+        # import it lazily and skip robot discovery when it's absent. The server
+        # still runs, robot-less -- and `import aiko_chat` no longer requires the
+        # examples package (Discussion #14).
         self.robot_server = None
-        for name in _ROBOT_NAMES:
-            service_discovery, service_discovery_handler = aiko.do_discovery(
-                XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
-                self.discovery_add_handler, self.discovery_remove_handler)
+        try:
+            from aiko_services.examples.xgo_robot.robot import XGORobot
+        except ImportError:
+            XGORobot = None
+            self.logger.info(
+                "xgo_robot example not installed; robot discovery disabled")
+        if XGORobot is not None:
+            for name in _ROBOT_NAMES:
+                service_discovery, service_discovery_handler = aiko.do_discovery(
+                    XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
+                    self.discovery_add_handler, self.discovery_remove_handler)
 
     def discovery_add_handler(self, service_details, service):
         print(f"Connected    {service_details[1]}: {service_details[0]}")
