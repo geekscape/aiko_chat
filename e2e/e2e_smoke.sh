@@ -12,7 +12,7 @@
 #
 # Assumes an anonymous MQTT broker on ${AIKO_MQTT_HOST:-localhost}:1883 and that
 # the aiko_chat + aiko_services console scripts are on PATH (pip install -e .).
-set -u
+set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${AIKO_MQTT_HOST:-localhost}"

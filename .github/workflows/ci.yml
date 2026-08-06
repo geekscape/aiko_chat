@@ -62,3 +62,7 @@ jobs:
         env:
           AIKO_MQTT_HOST: localhost
         run: bash e2e/e2e_smoke.sh
+      - name: Robot-dispatch e2e (proves the Robot-interface decoupling)
+        env:
+          AIKO_MQTT_HOST: localhost
+        run: bash e2e/e2e_robot.sh
