@@ -26,11 +26,19 @@
 # without composing an Actor, opening a broker connection or sending anything.
 # No MQTT broker, Registrar or ChatServer is required -- Tier 1 (Unit).
 #
-# Import note: unlike test_protocol.py, these tests cannot stay framework-free.
-# chat.py imports aiko_services, and chat_server.py imports an aiko_services
-# robot *example* that is not part of a stock install -- the pre-existing
-# packaging issue documented in test_protocol.py. The importorskip below names
-# that exact requirement, so a stock environment skips rather than errors.
+# Import note: unlike test_protocol.py, these tests cannot stay framework-free
+# -- chat.py imports aiko_services. They used to open with
+#
+#     pytest.importorskip("aiko_services.examples.xgo_robot.robot")
+#
+# because chat_server.py imported an aiko_services robot *example* absent from
+# a stock install. A stock install is exactly what CI builds, so that guard
+# skipped this entire file on every run: the last green build before it was
+# removed reported "12 passed, 1 skipped", and the 1 was these three tests --
+# the #10-class regression guard had never once fired. The Robot seam (robot.py)
+# removed the example import, so the guard is gone and the tests run everywhere.
+# A skip is green; nothing in the output distinguishes a guard doing its job
+# from a suite that has been switched off. Do not reintroduce one here.
 #
 # Subprocesses get this checkout's src/ at the front of PYTHONPATH so they test
 # THIS tree, not whichever aiko_chat a development venv has installed editable.
@@ -39,12 +47,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
-
-pytest.importorskip(
-    "aiko_services.examples.xgo_robot.robot",
-    reason="aiko_chat's CLI imports an aiko_services example not in a stock install")
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 _CHAT_PY = _SRC / "aiko_chat" / "chat.py"

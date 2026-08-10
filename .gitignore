@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Aiko ChatServer runtime state
+#   chat_start.sh bootstraps a HyperSpace under CHAT_SERVER_PATH (_chat_server_)
+#   next to the source it runs from, so anyone who starts a server locally -- or
+#   runs the e2e scripts -- grows an untracked tree of channel/user state here.
+#   Regenerable artifact, never source.
+_chat_server_/

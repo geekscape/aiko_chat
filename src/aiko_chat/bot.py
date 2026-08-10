@@ -18,7 +18,11 @@ import click
 import signal
 
 import aiko_services as aiko
-from aiko_chat import ChatServer, get_server_service_filter
+# The chat server INTERFACE only -- a bot finds a chat server, it never runs
+# one. Importing aiko_chat.chat_server here would drag in the whole server
+# implementation (see chat_server_interface.py).
+from aiko_chat.chat_server_interface import (
+    ChatServer, get_server_service_filter)
 
 __all__ = ["ChatBot", "ChatBotImpl"]
 
