@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 #
 # Aiko ChatServer: the interface, and how to discover one.
-#
-# Everything a CLIENT needs; the implementation is in chat_server.py. A bot
-# needs to FIND a chat server, not RUN one (Angie, 2026-08-08), and while both
-# lived in one module, importing the contract executed the whole server.
+# The implementation is in chat_server.py.
 #
 # Interface.default() binds the implementation by dotted STRING path, resolved
 # at compose time, so naming ChatServerImpl here does not import it.
-# tests/test_import_decoupling.py pins that; an eager import undoes it.
 
 from abc import abstractmethod
 
