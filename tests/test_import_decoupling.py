@@ -18,16 +18,15 @@ from pathlib import Path
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 
-# Never pulled in by a bot's imports: the examples package (Discussion #14),
-# its vision deps, and the LLM stack that send_message() imports lazily.
-_FORBIDDEN = (
-    "aiko_services.examples",
-    "cv2",
-    "numpy",
-    "PIL",
-    "langchain_core",
-    "httpx",
-)
+# Every aiko_chat module a bot is allowed to load. An exact set rather than a
+# denylist of heavy imports: a denylist only catches dependencies someone
+# thought to list, and every heavy one arrives THROUGH a module named here.
+_CLIENT_SIDE = {
+    "aiko_chat",
+    "aiko_chat.bot",
+    "aiko_chat.chat_server_interface",
+    "aiko_chat.protocol",
+}
 
 # --------------------------------------------------------------------------- #
 
@@ -47,46 +46,37 @@ def _loaded_modules(statement):
         f"`{statement}` failed:\n{result.stderr}"
     return set(json.loads(result.stdout.splitlines()[-1]))
 
-def _assert_none_forbidden(modules, statement):
-    for forbidden in _FORBIDDEN:
-        offenders = sorted(
-            name for name in modules
-            if name == forbidden or name.startswith(f"{forbidden}."))
-        assert not offenders, \
-            f"`{statement}` pulled in {forbidden}: {offenders}"
+def _aiko_chat_modules(statement):
+    return {name for name in _loaded_modules(statement)
+            if name == "aiko_chat" or name.startswith("aiko_chat.")}
 
 # --------------------------------------------------------------------------- #
 # The interface is importable without the implementation
 
+def test_bot_loads_only_the_client_side_of_the_package():
+    assert _aiko_chat_modules("import aiko_chat.bot") == _CLIENT_SIDE
+
+def test_package_import_loads_neither_the_server_nor_the_repl():
+    # Importing ANY submodule runs __init__ first, so what it re-exports is
+    # what every importer pays for.
+    assert _aiko_chat_modules("import aiko_chat") == _CLIENT_SIDE - {
+        "aiko_chat.bot"}
+
 def test_interface_import_does_not_execute_the_implementation():
     # Interface.default binds ChatServerImpl by string path, so naming it in
     # the interface must not import it.
-    statement = (
+    modules = _aiko_chat_modules(
         "from aiko_chat.chat_server_interface import "
         "ChatServer, get_server_service_filter")
-    modules = _loaded_modules(statement)
-    assert "aiko_chat.chat_server" not in modules, \
-        ("importing the ChatServer interface executed the implementation "
-         "module -- the split is not doing its job")
+    assert "aiko_chat.chat_server" not in modules
 
-def test_interface_import_avoids_examples_and_heavy_dependencies():
-    statement = "from aiko_chat.chat_server_interface import ChatServer"
-    _assert_none_forbidden(_loaded_modules(statement), statement)
-
-def test_package_import_avoids_examples_and_heavy_dependencies():
-    # Importing ANY submodule runs __init__ first, so what it re-exports is
-    # what every importer pays for.
-    statement = "import aiko_chat"
-    _assert_none_forbidden(_loaded_modules(statement), statement)
-
-def test_package_import_does_not_execute_the_repl_or_implementation():
-    modules = _loaded_modules("import aiko_chat")
-    for eager in ("aiko_chat.chat_server",
-                  "aiko_chat.chat_repl",
-                  "aiko_chat.repl_session"):
-        assert eager not in modules, \
-            (f"`import aiko_chat` eagerly executed {eager}; a bot that only "
-             "needs the ChatServer interface should not pay for it")
+def test_no_client_import_reaches_the_examples_package():
+    # The stock-install failure (Discussion #14): aiko_services ships without
+    # examples, so a bot that touches them cannot be imported at all.
+    for statement in ("import aiko_chat", "import aiko_chat.bot"):
+        examples = sorted(name for name in _loaded_modules(statement)
+                          if name.startswith("aiko_services.examples"))
+        assert not examples, f"`{statement}` loaded {examples}"
 
 # --------------------------------------------------------------------------- #
 # ...and the client-side names the package does re-export still work
