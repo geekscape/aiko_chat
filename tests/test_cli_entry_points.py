@@ -1,47 +1,21 @@
 #!/usr/bin/env python3
 #
-# Regression tests for aiko_chat's CLI entry points (src/aiko_chat/chat.py).
+# Regression tests for chat.py's three entry points: ./chat.py, python -m
+# aiko_chat.chat, and the aiko_chat console script.
 #
-# chat.py is reachable three ways, and all three must keep working:
+# Only direct execution can break this way, which is why it broke unnoticed in
+# 26d83bc: a file run directly is __main__ with an empty __package__, so its
+# relative imports raise ImportError before any path lookup.
 #
-#   1. ./chat.py repl            -- direct script execution. Documented in
-#                                   chat.py's own header ("./chat.py run",
-#                                   "./chat.py repl [username] [channel]") and
-#                                   relied on by its low-level MQTT recipe
-#                                   (`pgrep -f './chat.py'`). The file carries a
-#                                   shebang and the executable bit on purpose.
-#   2. python -m aiko_chat.chat  -- package-relative execution.
-#   3. aiko_chat                 -- the console script declared in
-#                                   pyproject.toml (aiko_chat.chat:main).
+# `<subcommand> --help` exercises every module-level import, then exits through
+# click without composing an Actor -- Tier 1, no broker.
 #
-# Case (1) regressed in 26d83bc, which split chat.py into protocol /
-# chat_server / chat_repl / CLI and converted chat.py's imports from absolute
-# to relative. A file run directly becomes __main__, whose __package__ is empty,
-# so a relative import has no parent to resolve against and CPython raises
-# ImportError before any path lookup. Cases (2) and (3) were unaffected, which
-# is why the regression was invisible -- hence all three are pinned here.
+# Do NOT add a pytest.importorskip here. The previous one named an
+# aiko_services example, which a stock install (i.e. CI) lacks, so it silently
+# skipped this whole file on every run.
 #
-# These tests drive `<subcommand> --help`: it exercises every module-level
-# import in chat.py (where the failure is) and then exits through click,
-# without composing an Actor, opening a broker connection or sending anything.
-# No MQTT broker, Registrar or ChatServer is required -- Tier 1 (Unit).
-#
-# Import note: unlike test_protocol.py, these tests cannot stay framework-free
-# -- chat.py imports aiko_services. They used to open with
-#
-#     pytest.importorskip("aiko_services.examples.xgo_robot.robot")
-#
-# because chat_server.py imported an aiko_services robot *example* absent from
-# a stock install. A stock install is exactly what CI builds, so that guard
-# skipped this entire file on every run: the last green build before it was
-# removed reported "12 passed, 1 skipped", and the 1 was these three tests --
-# the #10-class regression guard had never once fired. The Robot seam (robot.py)
-# removed the example import, so the guard is gone and the tests run everywhere.
-# A skip is green; nothing in the output distinguishes a guard doing its job
-# from a suite that has been switched off. Do not reintroduce one here.
-#
-# Subprocesses get this checkout's src/ at the front of PYTHONPATH so they test
-# THIS tree, not whichever aiko_chat a development venv has installed editable.
+# Subprocesses get this checkout's src/ first on PYTHONPATH, so they test THIS
+# tree rather than an editable install.
 
 import os
 import subprocess

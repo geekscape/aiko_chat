@@ -7,10 +7,9 @@
 # that channel receives it. Special recipients "llm", "robot" and "yolo" route
 # to the LLM (ollama) and XGO robot integrations.
 #
-# The CONTRACT lives in chat_server_interface.py, so a client (a bot, the REPL)
-# can depend on ChatServer without executing any of this module. Everything
-# below is server-side: only something actually running a chat server should
-# import it. See that module for why the split exists.
+# The contract lives in chat_server_interface.py, so a bot or the REPL can
+# depend on ChatServer without executing any of this. Everything below is
+# server-side.
 #
 # NOTE: the LLM + robot handling still lives inside send_message(). Extracting
 # it into chat_agent.py behind the composable <agent>/<robot> Interfaces is a
