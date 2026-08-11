@@ -12,7 +12,7 @@ import signal
 import aiko_services as aiko
 
 from .protocol import format_incoming, _VERSION
-from .chat_server import ChatServer, get_server_service_filter
+from .chat_server_interface import ChatServer, get_server_service_filter
 from .repl_session import FileHistoryStore, ReplSession
 
 __all__ = ["ChatREPL", "ChatREPLImpl"]

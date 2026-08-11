@@ -88,9 +88,11 @@ import click
 import aiko_services as aiko
 
 from .protocol import parse_recipients
-from .chat_server import (
-    ChatServer, ChatServerImpl, get_server_service_filter,
-    _ACTOR_SERVER, _PROTOCOL_SERVER)
+from .chat_server_interface import (
+    ChatServer, get_server_service_filter, _ACTOR_SERVER, _PROTOCOL_SERVER)
+# The CLI is the one client that also RUNS a server ("./chat.py run"), so it is
+# the legitimate importer of the implementation.
+from .chat_server import ChatServerImpl
 from .chat_repl import ChatREPLImpl, _ACTOR_REPL, _PROTOCOL_REPL
 
 __all__ = ["main"]

@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 #
-# Aiko ChatServer: backend Actor (Interface and Implementation)
+# Aiko ChatServer: backend Actor (Implementation)
 #
 # The ChatServer is the hub: it receives send_message() calls and republishes
 # each message to "{topic_path}/{channel}" over MQTT, so every subscriber on
 # that channel receives it. Special recipients "llm", "robot" and "yolo" route
 # to the LLM (ollama) and XGO robot integrations.
 #
+# The contract lives in chat_server_interface.py, so a bot or the REPL can
+# depend on ChatServer without executing any of this. Everything below is
+# server-side.
+#
 # NOTE: the LLM + robot handling still lives inside send_message(). Extracting
 # it into chat_agent.py behind the composable <agent>/<robot> Interfaces is a
 # separate, collaborative step (Andy) and is intentionally left in place here.
-
-from abc import abstractmethod
 
 import aiko_services as aiko
 
 from .protocol import generate_payload, _VERSION
 from .robot import Robot
+
+# Re-exported so `from .chat_server import ChatServer, ...` keeps working for
+# existing callers; the definitions live in chat_server_interface.
+from .chat_server_interface import (            # noqa: F401
+    ChatServer, get_server_service_filter, _ACTOR_SERVER, _PROTOCOL_SERVER)
 
 __all__ = ["ChatServer", "ChatServerImpl", "get_server_service_filter"]
 
@@ -24,28 +31,8 @@ _HYPERSPACE_NAME = "chat_space"
 _ROBOT_NAMES = ["laika", "oscar"]
 _ADMIN = "andyg"
 
-_ACTOR_SERVER = "chat_server"
-_PROTOCOL_SERVER = f"{aiko.SERVICE_PROTOCOL_AIKO}/{_ACTOR_SERVER}:{_VERSION}"
-
 # --------------------------------------------------------------------------- #
-
-def get_server_service_filter():
-    return aiko.ServiceFilter(
-        "*", _ACTOR_SERVER, _PROTOCOL_SERVER, "*", "*", "*")
-
-# --------------------------------------------------------------------------- #
-# Aiko ChatServer: Interface and Implementation
-
-class ChatServer(aiko.Actor):
-    aiko.Interface.default("ChatServer", "aiko_chat.chat_server.ChatServerImpl")
-
-    @abstractmethod
-    def exit(self):
-        pass
-
-    @abstractmethod
-    def send_message(self, username, recipients, message):
-        pass
+# Aiko ChatServer: Implementation
 
 class ChatServerImpl(aiko.Actor):
     def __init__(self, context, llm_enabled=False):
