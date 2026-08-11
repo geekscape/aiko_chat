@@ -14,9 +14,9 @@
 from abc import abstractmethod
 
 import aiko_services as aiko
-from aiko_services.examples.xgo_robot.robot import XGORobot
 
 from .protocol import generate_payload, _VERSION
+from .robot import Robot
 
 __all__ = ["ChatServer", "ChatServerImpl", "get_server_service_filter"]
 
@@ -62,10 +62,16 @@ class ChatServerImpl(aiko.Actor):
 
         self.llm = None
 
+        # Discover a robot service by the minimal `Robot` contract (see robot.py)
+        # rather than importing the concrete xgo_robot example -- so `import
+        # aiko_chat` needs no examples package or its heavy vision deps (Discussion
+        # #14), and the chat server no longer depends on a specific robot. If no
+        # robot is present, discovery simply never fires its add-handler and the
+        # server runs robot-less.
         self.robot_server = None
         for name in _ROBOT_NAMES:
             service_discovery, service_discovery_handler = aiko.do_discovery(
-                XGORobot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
+                Robot, aiko.ServiceFilter("*", name, "*", "*", "*", "*"),
                 self.discovery_add_handler, self.discovery_remove_handler)
 
     def discovery_add_handler(self, service_details, service):
