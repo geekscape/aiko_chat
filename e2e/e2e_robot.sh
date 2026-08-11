@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 #
-# End-to-end robot-dispatch test: prove the ChatServer's robot proxy -- built
-# from the minimal `Robot` interface (src/aiko_chat/robot.py), NOT the concrete
-# xgo_robot example -- actually discovers a robot Actor and dispatches action()
-# to it over MQTT. Closes the "live robot path unverified" gap from decoupling
-# the robot integration, without any real hardware.
+# End-to-end robot-dispatch test: prove the ChatServer discovers a robot Actor
+# through the minimal `Robot` interface (src/aiko_chat/robot.py) and dispatches
+# action() to it over MQTT, with no real hardware.
 #
-# Flow: broker + registrar + ChatServer (chat_start.sh) + a fake robot Actor
-# named "laika". The ChatServer discovers "laika"; we send a non-S-expression
-# message to recipient "robot" (which routes to robot_server.action()); the fake
-# robot echoes the value to a probe topic; we assert it arrived.
+# Same broker/PATH requirements as e2e_smoke.sh.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -85,9 +80,8 @@ echo "### robot-e2e: send exit $? (124 = timeout after publish is expected)"
 
 echo "### robot-e2e: assert the fake robot's action() actually fired"
 for _ in $(seq 1 20); do
-  # The fake robot echoes 'ROBOT_ACTION <value>' to PROBE_TOPIC only when its
-  # action() is invoked -- so a match proves the ChatServer's Robot-interface
-  # proxy dispatched action() over MQTT to a real discovered Actor.
+  # The fake robot echoes to PROBE_TOPIC only from inside action(), so a match
+  # proves the proxy dispatched to a real discovered Actor.
   if awk -v t="$PROBE_TOPIC" -v m="$MARKER" \
        '$1 == t && index($0, "ROBOT_ACTION") && index($0, m) {f=1} END {exit !f}' \
        "$CAPTURE"; then

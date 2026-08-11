@@ -1,13 +1,8 @@
 name: CI
 
-# Two gates before green:
-#  - unit: the pure-leaf + entry-point tests (fast, no broker). Catches the
-#    #10-class regression -- test_cli_entry_points drives all three entry points
-#    (./chat.py, python -m, console script), which a diff review cannot.
-#  - e2e:  boots the REAL stack (mosquitto + registrar + ChatServer via
-#    chat_start.sh) and asserts a message round-trips. Catches stock-env import
-#    (#14), cold-start channel bootstrap (#12), and wire-protocol breakage that
-#    unit tests structurally cannot see.
+# unit: fast, no broker. e2e: boots the real stack, which is the only way to
+# catch stock-env import (#14), cold-start channel bootstrap (#12) and
+# wire-protocol breakage.
 
 on:
   push:
