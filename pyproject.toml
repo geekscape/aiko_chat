@@ -3,7 +3,7 @@ name = "aiko_chat"
 version = "0.1"
 readme = "ReadMe.md"
 description = "Chat system built on top of Aiko Services"
-requires-python = ">=3.9,<=3.14.6"
+requires-python = ">=3.9.0,<3.15"
 
 authors = [
   {name = "Andy Gelme", email = "geekscape@gmail.com"}
