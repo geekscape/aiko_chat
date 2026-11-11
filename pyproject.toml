@@ -23,6 +23,10 @@ aiko_chat = "aiko_chat.chat:main"
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[tool.hatch.envs.default]
+path = ".hatch"
+features = ["dev"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
