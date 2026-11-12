@@ -1,0 +1,28 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c54043d..a5954df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,9 @@ keywords = ["agents", "distributed"]
+ license-files = ["LICENCE"]
+ 
+ dependencies = [
+-  "aiko_services>=0.7"
++  "aiko_services>=0.7",
++  "httpx",
++  "langchain"
+ ]
+ 
+ [project.scripts]
+diff --git a/src/aiko_chat/chat_server.py b/src/aiko_chat/chat_server.py
+index 8c7e3a4..c89cfbc 100644
+--- a/src/aiko_chat/chat_server.py
++++ b/src/aiko_chat/chat_server.py
+@@ -163,7 +163,7 @@ Your state information when relevant may be used in your response messages
+ 
+                     chat_prompt = ChatPromptTemplate.from_messages([
+                         ("system", SYSTEM_PROMPT), ("user", "{input}")])
+-                    llm = llm_load("ollama")
++                    llm = llm_load("openai", "ollama")
+                     output_parser = StrOutputParser()
+ 
+                     chain = chat_prompt | llm | output_parser
