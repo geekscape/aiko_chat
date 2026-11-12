@@ -104,7 +104,7 @@ class ChatServerImpl(aiko.Actor):
                     from httpx import ConnectError
                     from langchain_core.output_parsers import StrOutputParser
                     from langchain_core.prompts import ChatPromptTemplate
-                    from aiko_services.examples.llm.elements import llm_load
+                    from .llm import llm_load
 
                     message_lower = message.lower()
                     is_robot_command =  any(
